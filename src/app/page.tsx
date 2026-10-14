@@ -220,7 +220,25 @@ export default function HomePage() {
 
 
   return <main className="min-h-screen overflow-hidden px-5 py-6 md:px-10 md:py-8">
-    <nav className="mx-auto flex max-w-7xl items-center justify-between"><a href="/" className="flex items-center gap-2 font-extrabold tracking-tight"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#dff77a]"><Sparkles size={19} /></span><span className="text-xl">pingboard<span className="text-[#8aa83a]">.</span></span></a><div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-sm text-[#63665b] shadow-sm"><span className="h-2 w-2 rounded-full bg-[#a7d346]" /> No sign-up. Just share a link.</div></nav>
+    <nav className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-6 lg:px-8">
+      <a
+        href="/"
+        className="flex shrink-0 items-center gap-2 self-start font-extrabold tracking-tight"
+      >
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#dff77a]">
+          <Sparkles size={19} />
+        </span>
+
+        <span className="text-xl">
+          pingboard<span className="text-[#8aa83a]">.</span>
+        </span>
+      </a>
+
+      <div className="inline-flex max-w-full items-center gap-2 self-start rounded-full bg-white px-3 py-2 text-xs text-[#63665b] shadow-sm sm:self-auto sm:text-sm">
+        <span className="h-2 w-2 shrink-0 rounded-full bg-[#a7d346]" />
+        <span>No sign-up. Just share a link.</span>
+      </div>
+    </nav>
     <section ref={hero} className="mx-auto grid max-w-7xl items-center gap-12 pb-16 pt-14 md:grid-cols-[1.02fr_.98fr] md:pb-24 md:pt-24">
       <div>
         <h1 className="max-w-2xl font-[Manrope] text-5xl font-extrabold leading-[1.06] tracking-[-.055em] md:text-7xl">Good ideas are <span className="relative inline-block">better <span className="absolute -bottom-1 left-0 -z-10 h-3 w-full -rotate-2 rounded-full bg-[#dff77a]" /></span> together.</h1>
@@ -294,7 +312,7 @@ export default function HomePage() {
         )}
         <div className="mt-5 flex flex-wrap gap-5 text-sm text-[#898b81]"><span className="flex items-center gap-2"><Users size={16} /> Made for two (or more)</span><span className="flex items-center gap-2"><Link2 size={16} /> Share by link</span><span className="flex items-center gap-2"><Heart size={16} /> Extra heart energy</span></div>
       </div>
-      <div className="relative mx-auto w-full max-w-[560px] rotate-[1deg]"><div className="absolute -bottom-5 -left-4 z-10 grid h-12 w-12 rotate-12 place-items-center rounded-2xl bg-[#dff77a] text-2xl shadow-lg">✳</div>
+      <div className="relative mx-auto w-full max-w-[560px] rotate-[1deg]">
         <div className="board-shell overflow-hidden rounded-[28px]"><div className="flex items-center justify-between border-b border-[#eeeae3] px-5 py-4"><div className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#ff9b8f]" /><i className="h-2.5 w-2.5 rounded-full bg-[#f5d76e]" /><i className="h-2.5 w-2.5 rounded-full bg-[#b8db6a]" /></div><span className="text-xs font-semibold text-[#a2a297]">our little corner</span><div className="flex -space-x-2"><span className="grid h-7 w-7 place-items-center rounded-full border-2 border-white bg-[#f7d4c5] text-xs">🌞</span><span className="grid h-7 w-7 place-items-center rounded-full border-2 border-white bg-[#dce8ff] text-xs">🐸</span></div></div>
           <div className="relative aspect-[1.08] overflow-hidden bg-[#fffdf9]" style={{ backgroundImage: 'radial-gradient(#e8e5dc 1px, transparent 1px)', backgroundSize: '22px 22px' }}><div className="absolute left-[12%] top-[13%] -rotate-6 rounded-2xl bg-[#e5f6a8] px-5 py-4 shadow-sm"><span className="text-xs font-bold uppercase tracking-wider text-[#78932d]">remember</span><p className="mt-1 font-[Manrope] text-xl font-extrabold">Have fun ✨</p></div><svg className="absolute inset-0 h-full w-full" viewBox="0 0 500 460" fill="none"><path d="M95 210 C135 165 172 255 211 208 S273 177 300 219 S361 255 389 205" stroke="#ef8377" strokeWidth="7" strokeLinecap="round" /><path d="M85 320 Q150 260 215 322 T365 313" stroke="#8daee8" strokeWidth="6" strokeLinecap="round" /><path d="M305 100 l8 19 20 2 -15 13 5 20 -18 -11 -18 11 5 -20 -15 -13 20 -2z" fill="#f7d96c" /><path d="M385 115 C360 90 330 121 385 165 C440 121 410 90 385 115Z" fill="#ffb7b1" /><circle cx="115" cy="335" r="10" fill="#b5d77c" /><circle cx="143" cy="348" r="5" fill="#b5d77c" /><path d="M272 350 Q291 325 310 350 Q291 370 272 350Z" fill="#c3b2f1" /><path d="M291 331 L291 369" stroke="#fffdf9" strokeWidth="3" /></svg><div className="absolute bottom-[12%] right-[10%] rotate-6 rounded-2xl bg-[#f1e9ff] px-4 py-3 shadow-sm"><p className="text-sm font-bold">u got this!!</p><p className="mt-1 text-xs text-[#8980a0]">— your hype person</p></div><div className="absolute bottom-[8%] left-[9%] rounded-full border border-[#eeeae3] bg-white px-3 py-2 text-xs text-[#85877e] shadow-sm">✏️ someone is doodling...</div></div></div>
       </div>
