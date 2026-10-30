@@ -30,6 +30,13 @@ import {
   Tool,
 } from '@/lib/types';
 import { drawBoard, makeStroke } from '@/lib/board';
+import {
+  loadIdentity,
+  newIdentity,
+  saveIdentity,
+  type BoardIdentity,
+} from '@/lib/identity';
+import ProfilePicker from '@/components/ProfilePicker';
 
 const COLORS = [
   '#252820',
@@ -44,6 +51,7 @@ type PresenceUser = {
   id: string;
   name: string;
   color: string;
+  emoji?: string;
 };
 
 export default function Board({ roomId }: { roomId: string }) {
@@ -64,6 +72,9 @@ export default function Board({ roomId }: { roomId: string }) {
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(4);
   const [online, setOnline] = useState<PresenceUser[]>([]);
+  const [me, setMe] = useState<BoardIdentity | null>(null);
+  const [pending, setPending] = useState<BoardIdentity | null>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [connected, setConnected] = useState(false);
   const [copied, setCopied] = useState(false);
   const [roomLabel] = useState('our little corner');
@@ -218,13 +229,38 @@ export default function Board({ roomId }: { roomId: string }) {
   }, [paint, objects]);
 
   useEffect(() => {
+    const saved = loadIdentity();
+
+    if (saved) {
+      setMe(saved);
+    } else {
+      setPending(newIdentity());
+    }
+  }, []);
+
+  // Stable per-doodler color, derived from their id.
+  const meColor = me
+    ? COLORS[
+        Array.from(me.id).reduce(
+          (sum, char) => sum + char.charCodeAt(0),
+          0
+        ) % COLORS.length
+      ]
+    : COLORS[0];
+
+  useEffect(() => {
+    if (!me) return;
+
     let alive = true;
 
     const user: PresenceUser = {
-      id: crypto.randomUUID(),
-      name: `Doodler ${Math.floor(Math.random() * 90 + 10)}`,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      id: me.id,
+      name: me.name,
+      emoji: me.emoji,
+      color: meColor,
     };
+
+    setOnline([user]);
 
     const storageKey = `pingboard:${roomId}`;
 
@@ -272,6 +308,11 @@ export default function Board({ roomId }: { roomId: string }) {
         const bc = new BroadcastChannel(storageKey);
         localChannelRef.current = bc;
 
+        // BroadcastChannel has no presence primitive, so we track heartbeats.
+        const seen = new Map<string, number>();
+        const announce = () => bc.postMessage({ type: 'presence', user });
+        seen.set(user.id, Date.now());
+
         bc.onmessage = event => {
           if (event.data?.type === 'object') {
             accept(event.data.object);
@@ -299,10 +340,29 @@ export default function Board({ roomId }: { roomId: string }) {
           }
 
           if (event.data?.type === 'presence') {
+            const peer = event.data.user as PresenceUser | undefined;
+            if (!peer?.id) return;
+
+            const isNew = !seen.has(peer.id);
+            seen.set(peer.id, Date.now());
+
             setOnline(previous => [
-              ...previous.filter(item => item.id !== event.data.user.id),
-              event.data.user,
+              ...previous.filter(item => item.id !== peer.id),
+              { ...peer, emoji: peer.emoji || '✨' },
             ]);
+
+            // Let a newcomer learn about everyone already in the room.
+            if (isNew) announce();
+          }
+
+          if (event.data?.type === 'presence:bye') {
+            const id = event.data.id;
+            if (typeof id !== 'string') return;
+
+            seen.delete(id);
+            setOnline(previous =>
+              previous.filter(item => item.id !== id)
+            );
           }
 
           if (event.data?.type === 'clear') {
@@ -312,17 +372,44 @@ export default function Board({ roomId }: { roomId: string }) {
           }
         };
 
-        bc.postMessage({ type: 'presence', user });
+        announce();
+
+        const heartbeat = window.setInterval(() => {
+          announce();
+
+          const cutoff = Date.now() - 12000;
+
+          for (const [id, lastSeen] of seen) {
+            if (id !== user.id && lastSeen < cutoff) {
+              seen.delete(id);
+              setOnline(previous =>
+                previous.filter(item => item.id !== id)
+              );
+            }
+          }
+        }, 4000);
+
+        const sayGoodbye = () => {
+          bc.postMessage({ type: 'presence:bye', id: user.id });
+        };
+
+        window.addEventListener('beforeunload', sayGoodbye);
+
+        setConnected(true);
+
+        return () => {
+          alive = false;
+          window.clearInterval(heartbeat);
+          window.removeEventListener('beforeunload', sayGoodbye);
+          sayGoodbye();
+          localChannelRef.current?.close();
+          localChannelRef.current = null;
+        };
       }
 
-      setOnline([user]);
+      // No BroadcastChannel support: stay in local-only demo mode.
       setConnected(true);
-
-      return () => {
-        alive = false;
-        localChannelRef.current?.close();
-        localChannelRef.current = null;
-      };
+      return;
     }
 
     const channel = supabase.channel(`board:${roomId}`, {
@@ -413,7 +500,7 @@ export default function Board({ roomId }: { roomId: string }) {
       channelRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId]);
+  }, [roomId, me]);
   useEffect(() => {
     const canvas = canvasRef.current;
 
@@ -779,29 +866,99 @@ export default function Board({ roomId }: { roomId: string }) {
     redoRef.current = [];
   };
 
+  // Applies an undo/redo snapshot by diffing it against the current board, so
+  // the change is persisted and broadcast exactly like any other edit.
+  const applySnapshot = async (next: BoardObject[]) => {
+    const current = objectsRef.current;
+    const nextIds = new Set(next.map(object => object.id));
+
+    const removedIds = current
+      .filter(object => !nextIds.has(object.id))
+      .map(object => object.id);
+
+    const changed = next.filter(object => {
+      const before = current.find(item => item.id === object.id);
+      return !before || JSON.stringify(before) !== JSON.stringify(object);
+    });
+
+    syncState(next);
+
+    if (supabase) {
+      for (const id of removedIds) {
+        const { error } = await supabase
+          .from('board_objects')
+          .delete()
+          .eq('id', id)
+          .eq('room_id', roomId);
+
+        if (error) {
+          console.warn('Could not remove undone object:', error.message);
+          continue;
+        }
+
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'delete',
+          payload: { id },
+        });
+      }
+
+      for (const object of changed) {
+        const parsed = BoardObjectSchema.safeParse(object);
+
+        if (!parsed.success) continue;
+
+        const { error } = await supabase
+          .from('board_objects')
+          .upsert(
+            {
+              id: parsed.data.id,
+              room_id: roomId,
+              data: parsed.data,
+            },
+            { onConflict: 'id' }
+          );
+
+        if (error) {
+          console.warn('Could not restore object:', error.message);
+          continue;
+        }
+
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'object',
+          payload: { object: parsed.data },
+        });
+      }
+
+      return;
+    }
+
+    try {
+      localStorage.setItem(
+        `pingboard:${roomId}`,
+        JSON.stringify(next)
+      );
+    } catch {
+      // Local cache is best-effort.
+    }
+
+    for (const id of removedIds) {
+      localChannelRef.current?.postMessage({ type: 'delete', id });
+    }
+
+    for (const object of changed) {
+      localChannelRef.current?.postMessage({ type: 'object', object });
+    }
+  };
+
   const undo = () => {
     const prev = historyRef.current.pop();
     if (!prev) return;
 
     redoRef.current.push(objectsRef.current);
-    syncState(prev);
-
-    if (supabase) {
-      console.info(
-        'Undo updates this view only. Shared operation history is not enabled.'
-      );
-    } else {
-      try {
-        localStorage.setItem(
-          `pingboard:${roomId}`,
-          JSON.stringify(prev)
-        );
-      } catch {
-        // Local cache is best-effort.
-      }
-    }
-
     setSelectedId(null);
+    void applySnapshot(prev);
   };
 
   const redo = () => {
@@ -809,21 +966,45 @@ export default function Board({ roomId }: { roomId: string }) {
     if (!next) return;
 
     historyRef.current.push(objectsRef.current);
-    syncState(next);
-
-    if (!supabase) {
-      try {
-        localStorage.setItem(
-          `pingboard:${roomId}`,
-          JSON.stringify(next)
-        );
-      } catch {
-        // Local cache is best-effort.
-      }
-    }
-
     setSelectedId(null);
+    void applySnapshot(next);
   };
+
+  // History shortcuts: Ctrl/Cmd+Z to undo, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y to redo.
+  useEffect(() => {
+    const handleHistoryKeys = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const modifier = event.ctrlKey || event.metaKey;
+
+      if (!modifier || event.altKey) return;
+      if (key !== 'z' && key !== 'y') return;
+
+      const target = event.target;
+
+      // Let the browser handle undo/redo while typing in a field or editor.
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (key === 'y' || event.shiftKey) {
+        redo();
+      } else {
+        undo();
+      }
+    };
+
+    window.addEventListener('keydown', handleHistoryKeys);
+
+    return () =>
+      window.removeEventListener('keydown', handleHistoryKeys);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const copyLink = async () => {
     try {
@@ -833,6 +1014,19 @@ export default function Board({ roomId }: { roomId: string }) {
     } catch {
       window.prompt('Copy your board link:', window.location.href);
     }
+  };
+
+  const people = Array.from(
+    new Map(online.map(person => [person.id, person])).values()
+  ).sort((a, b) =>
+    a.id === me?.id ? -1 : b.id === me?.id ? 1 : 0
+  );
+
+  const saveProfile = (identity: BoardIdentity) => {
+    saveIdentity(identity);
+    setMe(identity);
+    setPending(null);
+    setEditingProfile(false);
   };
 
   return (
@@ -864,7 +1058,42 @@ export default function Board({ roomId }: { roomId: string }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 rounded-full border border-[#e7e5de] bg-white py-1.5 pl-2 pr-3">
+            <div className="flex -space-x-2">
+              {people.slice(0, 5).map(person => (
+                <button
+                  key={person.id}
+                  type="button"
+                  title={`${person.name}${
+                    person.id === me?.id ? ' (you)' : ''
+                  }`}
+                  aria-label={`${person.name}${
+                    person.id === me?.id ? ' (you)' : ''
+                  }`}
+                  onClick={() => {
+                    if (person.id === me?.id) setEditingProfile(true);
+                  }}
+                  className="sticker-enter grid h-8 w-8 place-items-center rounded-full border-2 border-white text-base shadow-sm transition hover:-translate-y-0.5"
+                  style={{ background: person.color }}
+                >
+                  {person.emoji || '✨'}
+                </button>
+              ))}
+
+              {people.length > 5 && (
+                <span className="grid h-8 w-8 place-items-center rounded-full border-2 border-white bg-[#f1f0ea] text-[10px] font-bold text-[#6f7167]">
+                  +{people.length - 5}
+                </span>
+              )}
+            </div>
+
+            <span className="whitespace-nowrap text-xs font-semibold text-[#526b1e]">
+              <Users size={13} className="mr-1 inline" />
+              {people.length} doodling
+            </span>
+          </div>
+
           <span
             className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold ${connected
               ? 'bg-[#e7f6bd] text-[#526b1e]'
@@ -955,6 +1184,28 @@ export default function Board({ roomId }: { roomId: string }) {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              className="tool-button"
+              onClick={undo}
+              disabled={historyRef.current.length === 0}
+              title="Undo (Ctrl+Z)"
+              aria-label="Undo"
+            >
+              <RotateCcw size={16} />
+              <span className="hidden sm:inline">Undo</span>
+            </button>
+
+            <button
+              className="tool-button"
+              onClick={redo}
+              disabled={redoRef.current.length === 0}
+              title="Redo (Ctrl+Shift+Z)"
+              aria-label="Redo"
+            >
+              <RotateCw size={16} />
+              <span className="hidden sm:inline">Redo</span>
+            </button>
+
             {objects.some(
               object => object.id === selectedId && object.type === 'text'
             ) && (
@@ -1048,6 +1299,16 @@ export default function Board({ roomId }: { roomId: string }) {
           Built for playful collaboration
         </span>
       </footer>
+
+      {(pending || (editingProfile && me)) && (
+        <ProfilePicker
+          initial={(pending ?? me) as BoardIdentity}
+          onSave={saveProfile}
+          onCancel={
+            pending ? undefined : () => setEditingProfile(false)
+          }
+        />
+      )}
     </main>
   );
 }

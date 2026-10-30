@@ -89,6 +89,16 @@ button:disabled {
   border-color: var(--accent);
   color: #273018;
 }
+.tool-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tool-button:disabled:hover {
+  border-color: var(--border);
+}
+.tool-button:disabled:active {
+  transform: none;
+}
 
 @media (max-width: 640px) {
   .tool-button {
